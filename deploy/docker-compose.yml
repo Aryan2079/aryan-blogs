@@ -1,0 +1,18 @@
+services:
+  blog:
+    image: hominsu/blog:latest
+    container_name: blog
+    restart: always
+    environment:
+      TZ: 'Asia/Shanghai'
+      NEXT_UMAMI_ID: ''
+    ports:
+      - '3000:3000'
+    networks:
+      net:
+        aliases:
+          - blog
+
+networks:
+  net:
+    driver: bridge
