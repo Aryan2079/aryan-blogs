@@ -1,6 +1,5 @@
 // const { Linkedin } = require("@/components/social-icons/icons")
-import icons from "@/components/social-icons/icons";
-
+// import icons from "../components/social-icons/icons";
 
 /** @type {import("pliny/config").PlinyConfig } */
 const siteMetadata = {
