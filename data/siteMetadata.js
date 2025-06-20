@@ -1,3 +1,5 @@
+const { Linkedin } = require("@/components/social-icons/icons")
+
 /** @type {import("pliny/config").PlinyConfig } */
 const siteMetadata = {
   title: 'Aryan',
@@ -13,6 +15,8 @@ const siteMetadata = {
   socialBanner: '/static/images/twitter-card.png',
   email: 'bhattaraiaryan78@gmail.com',
   github: 'https://github.com/Aryan2079',
+  linkedin: 'https://www.linkedin.com/in/aryan-bhattarai-16123b280/',
+  instagram: 'https://www.instagram.com/_aryanbhattarai/',
   locale: 'en-US',
   analytics: {
     // If you want to use an analytics provider you have to add it to the

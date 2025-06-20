@@ -38,8 +38,8 @@ jobs:
         uses: docker/setup-buildx-action@v3
         with:
           version: 'lab:latest'
-          driver: cloud
-          endpoint: 'hominsu/builder'
+          # driver: cloud
+          # endpoint: 'hominsu/builder'
 
       - name: Build and Push
         id: bake
