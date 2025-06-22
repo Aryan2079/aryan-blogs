@@ -55,6 +55,7 @@ function $$SETUP_STATE(hydrateRuntimeState, basePath) {
             ["hast-util-from-html-isomorphic", "npm:2.0.0"],\
             ["husky", "npm:9.1.7"],\
             ["image-size", "npm:1.1.1"],\
+            ["katex", "npm:0.16.22"],\
             ["lint-staged", "npm:13.3.0"],\
             ["next", "virtual:6a0736c9e273c87cd59acbbec4b8c6fb052a32da59f0f7ce9dad8f9362bfe91de85faf06d7e63b7dd936da7d5208f18133db4ca131fb419f2ad022d74732764f#npm:14.2.5"],\
             ["next-contentlayer2", "virtual:6a0736c9e273c87cd59acbbec4b8c6fb052a32da59f0f7ce9dad8f9362bfe91de85faf06d7e63b7dd936da7d5208f18133db4ca131fb419f2ad022d74732764f#npm:0.5.0"],\
@@ -15592,6 +15593,7 @@ function $$SETUP_STATE(hydrateRuntimeState, basePath) {
             ["hast-util-from-html-isomorphic", "npm:2.0.0"],\
             ["husky", "npm:9.1.7"],\
             ["image-size", "npm:1.1.1"],\
+            ["katex", "npm:0.16.22"],\
             ["lint-staged", "npm:13.3.0"],\
             ["next", "virtual:6a0736c9e273c87cd59acbbec4b8c6fb052a32da59f0f7ce9dad8f9362bfe91de85faf06d7e63b7dd936da7d5208f18133db4ca131fb419f2ad022d74732764f#npm:14.2.5"],\
             ["next-contentlayer2", "virtual:6a0736c9e273c87cd59acbbec4b8c6fb052a32da59f0f7ce9dad8f9362bfe91de85faf06d7e63b7dd936da7d5208f18133db4ca131fb419f2ad022d74732764f#npm:0.5.0"],\
