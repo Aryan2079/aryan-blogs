@@ -13,7 +13,7 @@ canonicalUrl: https://aryanbhattarai.com.np/blog/guardrails-that-admit-their-lim
 
 Most guardrails libraries advertise what they block. I wanted to build one that is just as clear about what it does not block, because the dangerous failure with a safety layer is a team trusting it more than it deserves.
 
-The project is [ai-guardrails](https://github.com/aryanbhattaraidev-wq/guardrails_ai_scafold), a thin layer over Guardrails AI for Python apps. It is not an LLM client or a proxy. It validates text before it reaches your model and after it comes back, and your code keeps calling whichever provider it already uses.
+The project is [ai-guardrails](https://github.com/aryan-bhattarai/guardrails_ai_scafold), a thin layer over Guardrails AI for Python apps. It is not an LLM client or a proxy. It validates text before it reaches your model and after it comes back, and your code keeps calling whichever provider it already uses.
 
 ```
 user text -> [input policy] -> your existing model call -> [output policy] -> validated text
