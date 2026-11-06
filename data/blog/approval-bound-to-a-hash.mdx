@@ -1,0 +1,103 @@
+---
+title: 'An approval should expire when the thing it approved changes'
+date: '2026-11-10'
+lastmod: '2026-11-10'
+tags: ['python', 'ai-agents', 'safety', 'playwright']
+draft: true
+summary: 'My job-application tool can fill a real form, but it can never press Submit on its own. Making that promise hold took a content hash, a second look at the live form, and a test that greps the codebase.'
+images: ['/static/images/banner/approval-bound-to-a-hash.jpg']
+authors: ['default']
+layout: PostBannerLayout
+canonicalUrl: https://aryanbhattarai.com.np/blog/approval-bound-to-a-hash
+---
+
+I built a tool that finds jobs, tailors a CV, writes a cover letter and pre-fills the real application form in a browser. The one thing I decided it must never do alone is press Submit.
+
+Saying that is easy. Making it true turned out to take three separate mechanisms, and the first obvious design was wrong.
+
+## The boolean that lies
+
+My first version had a column on the `applications` table: `approval_status`, either `pending` or `approved`. You review the CV and letter, you approve, and the submit step checks the column.
+
+Here is how that breaks. Say I approve an application at 10pm. At 10:05 I decide paragraph two of the cover letter is weak and regenerate it. The row now holds the new letter, but the status still says `approved`. The approval was for a letter that no longer exists, and nothing noticed.
+
+A status flag is a statement about one moment, stored as if it were a fact about the application.
+
+## Approve a hash, not a row
+
+So approval stores a fingerprint of exactly what will be sent:
+
+```python
+def content_hash(app: dict) -> str:
+    h = hashlib.sha256()
+    for p in (app.get("cv_pdf"), app.get("cover_pdf")):
+        h.update(Path(p).read_bytes() if p and Path(p).exists() else b"-")
+    h.update((app.get("cover_text") or "").encode())
+    h.update((app.get("snapshot_json") or "").encode())
+    return h.hexdigest()
+```
+
+Two details matter here. The PDFs are hashed by their bytes, not their file paths, because regenerating a CV usually writes to the same path. And `snapshot_json` is every label and value the form filler produced, so the answers to the form's own questions are covered too.
+
+Submitting recomputes the hash and compares:
+
+```python
+def assert_approved(app: dict) -> None:
+    if app["approval_status"] != "approved":
+        raise PermissionError(f"application {app['id']} is '{app['approval_status']}', not approved")
+    if content_hash(app) != app["approved_hash"]:
+        raise PermissionError("application changed after approval; review and approve again")
+```
+
+The test for it is five lines: approve, then run `UPDATE applications SET cover_text='CHANGED'`, then assert that `assert_approved` raises.
+
+## The form can change too
+
+The hash covers what I stored. The form itself lives on Greenhouse's or Lever's server, and companies edit their forms.
+
+So at submit time the tool does not trust the saved snapshot. It opens the real form again, fills it again, and compares the list of `(label, value)` pairs against the approved snapshot. If a field appeared, vanished or changed, it stops and tells you to re-approve.
+
+There is a catch. Free-text questions like "Why do you want to work here?" are answered by an LLM, and it will word the answer differently the second time. Compare naively and every submit fails. The fix is to replay the exact approved drafts on the second pass instead of asking the model again:
+
+```python
+approved_answers = {f["label"]: f["full"] for f in saved["filled"] if f.get("full")}
+res = form.prefill(page, prof, app["cv_pdf"], app["cover_pdf"],
+                   app["cover_text"] or "", drafter=approved_answers.get)
+```
+
+The comparison then tests the form, not the model's mood.
+
+## One door to the button
+
+Even with a hash, the safest button is the one nothing can reach by accident. Only `apply/submit.py` is allowed to click Submit. I enforce that with a test instead of a comment:
+
+```python
+def test_only_submit_module_can_click_submit():
+    src = Path(__file__).resolve().parents[1] / "src" / "jobhunter"
+    offenders = []
+    for f in src.rglob("*.py"):
+        if f.name == "submit.py" and f.parent.name == "apply":
+            continue
+        txt = f.read_text(encoding="utf-8")
+        if re.search(r"SUBMIT_BUTTON|click\([^)]*[Ss]ubmit|\.submit\(\)", txt):
+            offenders.append(str(f))
+    assert offenders == []
+```
+
+A second test reads the body of the scheduled `run` command and asserts it never mentions `submit_application`. The daily task can discover jobs, score them and send me a digest. It has no path to the code that submits.
+
+I like tests like these because they turn an architecture rule into something CI can fail. I will forget the rule eventually. The test will not.
+
+## Questions it refuses to answer
+
+Application forms ask about gender, veteran status, visa sponsorship, salary expectations. The form filler matches those labels against a pattern and hands them back to me, along with every radio button and checkbox question. A typo in a cover letter is embarrassing. A wrong answer to a work-authorization question is a misrepresentation, and I would rather answer it myself.
+
+## What this does not cover
+
+The hash is only as good as what goes into it. A hidden field that is not in the snapshot is not protected. A site that renames a label will trigger a false alarm and make me approve again, which is annoying and which I accept.
+
+And the tool still asks one last `y/N` right before the click, because a matching hash can prove nothing changed. It cannot prove it is still a good idea.
+
+The general version: when an action cannot be undone, tie consent to the content, not to a flag, and put the irreversible step behind one door that the rest of the code cannot open.
+
+The code is in [job_hunter](https://github.com/aryanbhattaraidev-wq/job_hunter), under `src/jobhunter/apply/`.

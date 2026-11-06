@@ -1,0 +1,29 @@
+name: Publish scheduled posts
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # daily, 03:00 UTC (08:45 in Nepal)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Flip drafts whose date has arrived
+        run: node scripts/publish-scheduled.mjs
+      - name: Commit and push if anything changed
+        run: |
+          if [ -n "$(git status --porcelain data/blog)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/blog
+            git commit -m "Publish scheduled posts"
+            git push
+          fi

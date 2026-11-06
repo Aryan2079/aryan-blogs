@@ -1,0 +1,104 @@
+---
+title: 'Let the model write your cover letter, but make the code check its numbers'
+date: '2026-11-17'
+lastmod: '2026-11-17'
+tags: ['python', 'llm', 'ai-agents', 'validation']
+draft: true
+summary: 'Asking an LLM to tailor a CV is how you end up with skills you do not have. My tool selects facts with plain code and lets the model write only where a checker can catch it lying.'
+images: ['/static/images/banner/select-dont-generate-your-cv.jpg']
+authors: ['default']
+layout: PostBannerLayout
+canonicalUrl: https://aryanbhattarai.com.np/blog/select-dont-generate-your-cv
+---
+
+The obvious way to tailor a CV with an LLM is to paste in the CV and the job posting and ask for a better version. It works, and that is the problem. A job asks for Kubernetes, you have never touched it, and the model is eager to help.
+
+I wanted a tool where that cannot happen, not one where it usually does not happen.
+
+## Facts with IDs
+
+Everything starts from a profile made of small facts, each with a stable ID: a bullet from a project, a line from an internship, a skill. Every bullet has a `verified` flag. Nothing outside this list can appear in a CV.
+
+## Tailoring is selection, not writing
+
+The CV step does not call a model at all. It scores each bullet by how many words it shares with the job posting, and counts words that are real technologies from my profile three times as much as ordinary words:
+
+```python
+def rel(text: str, extra: str = "") -> int:
+    hit = tokens(text + " " + extra) & jt - STOP
+    return sum(3 if t in tech else 1 for t in hit)
+```
+
+It keeps the top few bullets per entry, restores their original order so the CV still reads naturally, and moves matching skills to the front of each list. That is the whole algorithm. It is boring on purpose, and it is explainable: I can print why a bullet made the cut.
+
+Then comes the part I care about, a validator that runs before anything is rendered:
+
+```python
+def validate(prof: Profile, pl: dict) -> list[str]:
+    errs = []
+    bullets = prof.all_bullets()
+    for e in pl["entries"]:
+        for b in e["bullets"]:
+            if b not in bullets or not bullets[b].verified:
+                errs.append(f"unknown/unverified bullet {b}")
+    for cat, ss in pl["skills"].items():
+        for s in ss:
+            if s.lower() not in prof.skill_set():
+                errs.append(f"skill not in profile: {s}")
+    return errs
+```
+
+A CV that fails this does not get rendered. If the selection code ever has a bug, the bug cannot turn into a false claim.
+
+## Gaps are information
+
+The same pass compares the technologies the posting demands against what my profile contains, and returns two lists: covered and gaps. The gaps are shown to me instead of being papered over. If a posting wants Terraform and Kafka and I have neither, I would rather know before I apply than discover it in the interview.
+
+## Where the model does write
+
+A cover letter cannot be a selection. Someone has to write sentences. So this is the one place the model writes, with two constraints.
+
+First, every paragraph must return the IDs of the facts it used:
+
+```json
+{"paragraphs": [{"text": "...", "fact_ids": ["b12", "b07"]}]}
+```
+
+Second, the code checks the output against those facts before I ever see it:
+
+```python
+cited = " ".join(facts[x].text for x in ids if x in facts) + " " + entry_blob
+extra_nums = _numbers(text) - _numbers(cited)
+if extra_nums:
+    errs.append(f"paragraph {i+1} contains numbers not in cited facts: {sorted(extra_nums)}")
+```
+
+Any number in the paragraph that does not appear in the facts it cited is an error. So is a technology from a fixed vocabulary (Kubernetes, Spark, Kafka and so on) that is not somewhere in my profile. So is a paragraph with no cited facts, and a letter over 300 words.
+
+A letter that fails is not shown to me polished and wrong. It is left for me to fix by hand.
+
+This is crude. A regex on numbers does not catch "led the team" when I did not lead anything. It catches the failure that is easiest to commit and easiest to check, which is invented figures and invented tools. Cheap checks that catch the common lie are worth more than a perfect check I never build.
+
+## Judging the job, not the title
+
+One more place where the model helps and the code stays in charge: ranking. A model re-reads the top matches and returns structured fields, such as the years of experience the posting actually requires. Titles lie. A role called "Junior ML Engineer" that says "5+ years" three paragraphs down is a senior role.
+
+The model only extracts. The decision is plain arithmetic:
+
+```python
+s = 0.5 * rule_score + 0.5 * a["fit"]
+if a.get("realistic_seniority") in ("senior", "lead") or (isinstance(yrs, (int, float)) and yrs >= 5):
+    s *= 0.5
+if a.get("paid") is False:
+    s *= 0.5
+if a.get("open_to_nepal_or_worldwide_remote") is False:
+    s *= 0.4
+```
+
+I can read those lines and know exactly why a job ranked where it did. I could not do that with "ask the model for a score from 0 to 100".
+
+## The rule I took from this
+
+Give the model the tasks where a mistake is cheap to detect, and give plain code the tasks where a mistake is expensive. Select with code, write with a model, and put a checker between the model and the reader.
+
+The tool is [job_hunter](https://github.com/aryanbhattaraidev-wq/job_hunter). The CV logic is in `src/jobhunter/cv/__init__.py` and the letter checks are in `ai.py`.

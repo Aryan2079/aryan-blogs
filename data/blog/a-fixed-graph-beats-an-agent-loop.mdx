@@ -1,0 +1,76 @@
+---
+title: 'I built a research agent as a fixed graph. Here is why it is not a loop.'
+date: '2026-12-08'
+lastmod: '2026-12-08'
+tags: ['langgraph', 'python', 'ai-agents', 'rag']
+draft: true
+summary: 'Not every agent needs to decide what to do next. My research agent is five nodes in a LangGraph pipeline with one conditional edge, and that is why its cost and behavior are predictable.'
+images: ['/static/images/banner/a-fixed-graph-beats-an-agent-loop.jpg']
+authors: ['default']
+layout: PostBannerLayout
+canonicalUrl: https://aryanbhattarai.com.np/blog/a-fixed-graph-beats-an-agent-loop
+---
+
+The default picture of an AI agent is a loop: the model looks at the situation, picks a tool, sees the result, and decides again until it thinks it is done. That is a good fit for open-ended work. My research agent does not use it, and the reason is worth spelling out.
+
+The job is fixed. Given a topic, plan the research, search, summarise, write notes, store them. I already know the steps and their order. Asking a model to rediscover that order on every run buys flexibility I do not need and charges me for it in cost and variance.
+
+## The whole thing
+
+```python
+g = StateGraph(ResearchState)
+g.add_node("planner", planner_node)
+g.add_node("researcher", researcher_node)
+g.add_node("summarizer", summarizer_node)
+g.add_node("notes", notes_node)
+g.add_node("memory", memory_node)
+
+g.add_edge(START, "planner")
+g.add_edge("planner", "researcher")
+g.add_conditional_edges("researcher", _after_research,
+                        {"summarizer": "summarizer", "notes": "notes"})
+g.add_edge("summarizer", "notes")
+g.add_edge("notes", "memory")
+g.add_edge("memory", END)
+```
+
+Five nodes and one branch. The branch is a plain function: if the researcher found no documents, skip the summarizer and go straight to notes.
+
+```python
+def _after_research(state):
+    return "summarizer" if state.get("raw_documents") else "notes"
+```
+
+The notes node then writes a clear "no data collected" note instead of the run falling over. That one conditional edge is the only place the graph has anything resembling judgment, and it is five words of Python.
+
+## What a fixed graph buys
+
+**Known cost.** Every stage makes a known number of LLM calls. I can estimate a run before starting it, which matters when you are paying per token or living on a free tier.
+
+**Cheaper models where they are enough.** Because stages are separate, they can use different models. Planning and note-writing use a stronger one. Summarising, which is the high-volume step, uses a fast cheap one. In a single loop you usually end up with one model doing everything.
+
+**Honest progress.** `graph.stream()` emits an event per node, which drives a real progress bar over server-sent events. In a free-form loop you can report "the model is thinking" and not much else.
+
+**Easy failure handling.** Each node decides what happens when its model call breaks. The planner falls back to a simple three-query plan. The notes node falls back to a note built from the raw summaries. One bad reply from one model does not lose the whole run.
+
+## Small decisions inside the nodes
+
+The summarizer batches three documents per LLM call, truncates each to 6,000 characters, and runs batches in parallel with a small thread pool. Those numbers are not clever. They exist so that one call cannot blow the context window and so the fast model is used efficiently. Writing them as named constants at the top of the file (`_MAX_DOCS_PER_CALL = 3`) means that when a run is slow or an answer is thin, I know which knob to turn.
+
+Structured output is handled by hand. Prompts demand JSON only, and a helper strips `<think>` blocks and code fences, extracts the JSON object and validates it against a Pydantic schema. That is less elegant than native tool calling, and it behaves the same on every model I route through OpenRouter, including the ones whose tool-calling is flaky.
+
+## Memory has a sharp edge
+
+After a run, the report is chunked on headings, embedded locally with `BAAI/bge-small-en-v1.5` and stored in an on-disk Qdrant collection. Follow-up questions retrieve the top five chunks for that topic and the model answers only from them, returning the source URLs.
+
+The sharp edge: Qdrant's embedded mode allows one process per data directory. Start two backend workers and the second cannot open the same directory. The docs say so, and the fix is a Qdrant server rather than the embedded mode. It is the kind of limit you only find by deploying, and it is in the architecture notes so future me does not rediscover it.
+
+Re-running research on a topic replaces its old chunks (`delete_topic` before `upsert`) so the memory does not fill with stale versions of the same report.
+
+## When I would use a loop instead
+
+If the agent had many tools and no obvious order, for example a coding assistant that sometimes needs to search, sometimes edit, sometimes run tests, I would want the model choosing. That is the real case for an agent loop, and the architecture notes say it: the model should drive when the path is unknown.
+
+I wrote a comparison table in the repo and then realised it reduces to one question. Do you know the shape of the work ahead of time? If yes, draw it as a graph. If no, give the model the wheel and cap the iterations.
+
+The project is [autonomous_research_agent](https://github.com/aryanbhattaraidev-wq/autonomous_research_agent). The architecture document is in `docs/ARCHITECTURE.md`.

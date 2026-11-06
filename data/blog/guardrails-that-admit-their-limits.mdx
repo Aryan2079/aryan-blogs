@@ -1,0 +1,84 @@
+---
+title: 'Guardrails for LLM apps: what a regex can and cannot promise'
+date: '2026-12-01'
+lastmod: '2026-12-01'
+tags: ['python', 'llm', 'security', 'fastapi']
+draft: true
+summary: 'I wrote a guardrails layer for LLM apps and spent as much effort on documenting what it fails to catch as on what it catches. Notes on fail-closed design, Luhn checks and a telemetry default that surprised me.'
+images: ['/static/images/banner/guardrails-that-admit-their-limits.jpg']
+authors: ['default']
+layout: PostBannerLayout
+canonicalUrl: https://aryanbhattarai.com.np/blog/guardrails-that-admit-their-limits
+---
+
+Most guardrails libraries advertise what they block. I wanted to build one that is just as clear about what it does not block, because the dangerous failure with a safety layer is a team trusting it more than it deserves.
+
+The project is [ai-guardrails](https://github.com/aryanbhattaraidev-wq/guardrails_ai_scafold), a thin layer over Guardrails AI for Python apps. It is not an LLM client or a proxy. It validates text before it reaches your model and after it comes back, and your code keeps calling whichever provider it already uses.
+
+```
+user text -> [input policy] -> your existing model call -> [output policy] -> validated text
+```
+
+## Fail closed, and say so
+
+The first question for any validator is: what happens when it crashes?
+
+Suppose a PII check throws an exception on a weird input. A lot of code catches that, logs it and carries on, which means the worst inputs skip the check. In ai-guardrails a critical validator that crashes or times out produces an `error` result, and the text is not passed through. Failing open is possible, but only if you set `critical: false` explicitly, and the skipped validators are recorded in the result's diagnostics.
+
+The same rule applies at startup. If a validator package named in the config is not installed, startup fails. It is never silently left out, because a config that says "PII redaction on" and runs without it is worse than a crash.
+
+## Order matters: cards and phones
+
+The PII validator is regex-based, and the file says so in its first lines. Four entity types: emails, US-style phone numbers, US SSNs, and card numbers.
+
+A 16-digit card number also looks a lot like a phone number to a loose pattern. If the phone regex runs first it will eat part of the card. So the redactors run in a deliberate order, longest digit runs first.
+
+Card numbers also get a second check, because plenty of 16-digit strings are not cards (order IDs, tracking numbers). A candidate is only redacted if it passes the Luhn checksum:
+
+```python
+def _luhn_ok(digits: str) -> bool:
+    total = 0
+    for index, char in enumerate(reversed(digits)):
+        number = int(char)
+        if index % 2 == 1:
+            number *= 2
+            if number > 9:
+                number -= 9
+        total += number
+    return total % 10 == 0
+```
+
+Without it, a support bot would redact every long ID a customer pastes in, and people would turn the guardrail off. A guardrail with too many false positives gets disabled, which makes it a guardrail with no coverage.
+
+## A phrase list is not prompt-injection defence
+
+The default config includes a ban list: "ignore previous instructions", "reveal your system prompt" and a few more. It catches those exact phrases. A paraphrase, another language, or some encoding trick walks straight past it.
+
+I kept it because it catches lazy attempts for free. But next to it in the YAML there is a comment saying it is not a classifier, and `docs/security_notes.md` is blunt about it: the tests assert that known examples are caught, not that attacks are prevented. If your model has tools, the real protection is permissions enforced outside the model.
+
+The same section covers the case that gets less attention. Retrieved documents and tool output are untrusted too. Injection can arrive in a web page your RAG pipeline fetched. That is why the config has stages for `retrieval` and `tool_output`, not just `input` and `output`.
+
+## Logs that cannot leak
+
+A validation layer sees everything users type, so its logging is a liability.
+
+- Logs hold the request ID, stage, profile, status, validator IDs, reason code and timing. Never the text.
+- `ValidationResult.content` is excluded from `repr`, so `print(result)` in a debugger does not dump user data.
+- User-facing messages come from a fixed table. A validator's own error text and exception messages are never shown to callers, and exceptions are reduced to their type name.
+- Logging content is an opt-in setting that prints a startup warning and is rejected outright in production.
+
+## The telemetry surprise
+
+While reading the dependency I found that guardrails-ai 0.11 enables anonymous metrics by default and exports OpenTelemetry spans to a hosted endpoint at the first guard call. For a library whose whole job is handling sensitive text, that was not a default I wanted to inherit.
+
+ai-guardrails turns it off in the guard factory, including after `Guard.configure()` re-reads the user's `~/.guardrailsrc`, and a test asserts it stays off. The lesson is general: when you wrap a library that touches sensitive data, read what it does at import and first call, not only what its README promises.
+
+## The timeout you cannot enforce
+
+One limit I could document but not fix. Validators have a per-request timeout, but Guardrails AI runs synchronous validators in a worker thread. A thread cannot be killed from outside. When a validator times out, the request gets its `error` result and moves on, but the validator keeps running until it finishes.
+
+So a slow or hostile input can still occupy a thread. The notes say what to do about it: keep validators fast and rate-limit callers.
+
+## The principle
+
+A safety layer is a set of promises. Each one should be written down with its edge: PII detection is pattern-based and misses names; the ban list stops obvious strings; timeouts do not cancel work. If I cannot state the limit in a sentence, I do not understand the feature well enough to ship it.

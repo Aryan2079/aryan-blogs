@@ -1,0 +1,92 @@
+---
+title: 'Chunking docs for RAG so every answer can cite a line range'
+date: '2026-12-15'
+lastmod: '2026-12-15'
+tags: ['rag', 'python', 'embeddings', 'mcp']
+draft: true
+summary: 'Fixed-size chunks cut functions in half and give you nothing to cite. How DevPilot splits Markdown on headings, tracks line numbers, and only re-embeds files that actually changed.'
+images: ['/static/images/banner/chunking-docs-for-rag-that-can-cite-lines.jpg']
+authors: ['default']
+layout: PostBannerLayout
+canonicalUrl: https://aryanbhattarai.com.np/blog/chunking-docs-for-rag-that-can-cite-lines
+---
+
+Most RAG tutorials say "split your documents into 500-token chunks" and move on. That works for a demo and falls apart the first time someone asks "where did you get that?"
+
+In DevPilot, the developer assistant I built on MCP, I wanted answers like `docs/architecture.md:12-30` instead of "according to the documentation". That requirement shaped the whole chunker.
+
+## Why not fixed-size slices
+
+An embedding is one vector per input. Embed a whole file and many topics blur into one point, and retrieval hands the model far more text than it needs. So you chunk.
+
+But fixed-size chunks cut where the count runs out, not where the meaning does. They split a sentence, a function, a table row. Retrieval then returns half an idea.
+
+## Split on headings first
+
+For Markdown, the chunker splits on headings before anything else, so a chunk is about one topic. It also keeps the heading path, built with a stack so nesting is right:
+
+```python
+while stack and stack[-1][0] >= level:
+    stack.pop()
+stack.append((level, line[level:].strip()))
+heading = " > ".join(h for _, h in stack)
+```
+
+A chunk inside "Transports" under "Architecture" gets the heading `Architecture > Transports`. When it is embedded, that path is prepended with the file name:
+
+```python
+def embed_text(self, source: str) -> str:
+    context = f"{source} > {self.heading}" if self.heading else source
+    return f"{context}\n{self.text}"
+```
+
+Short chunks are the ones that benefit. A three-line paragraph reading "The default is 12." means nothing alone. With its heading path attached, the vector knows what the 12 refers to.
+
+## The bug I would have shipped
+
+Lines starting with `#` are headings in Markdown, and also comments in Python and shell, which show up inside fenced code blocks. A naive splitter treats `# install dependencies` inside a code sample as a new section and shreds the example.
+
+The fix is a boolean that flips whenever a line starts with three backticks, and heading detection is skipped while it is on:
+
+```python
+if line.lstrip().startswith("```"):
+    in_fence = not in_fence
+if not in_fence and 1 <= level <= 6 and line[level : level + 1] == " ":
+    ...
+```
+
+Two lines. Without them, any shell or Python comment inside a code sample becomes a fake section.
+
+## Big sections and overlap
+
+A section longer than 1,200 characters is packed line by line, carrying roughly the last 150 characters into the next chunk. The overlap means a sentence on a boundary appears whole in at least one chunk.
+
+Two edge cases are handled: a single enormous line, such as minified code, is split by characters so it cannot exceed the limit; and a trailing chunk that is nothing but carried-over overlap is dropped, because it would be a duplicate.
+
+## Line numbers are the real feature
+
+Every chunk records its first and last line, 1-based. Blank lines at the edges are trimmed so the range is exactly the text. That is what makes the citation precise, and it is why the system prompt can tell the model to cite `[path:start-end]` exactly as the tool returns it, and to say so when the sources do not answer the question.
+
+It also changes how the assistant behaves. When every claim must be traceable to a range, it is much harder for the model to quietly fill gaps with what it remembers.
+
+## Re-indexing without paying twice
+
+Embedding costs money or time. DevPilot's index stores a SHA-256 of each file's contents with its chunks. On `devpilot index`, a file is re-embedded only if its hash differs from the indexed one, and chunks of files that no longer exist are deleted. Editing one document re-embeds one document.
+
+One more rule that is easy to miss: the collection name includes the embedding model's name. Vectors from different models live in different spaces, so comparing them gives nonsense that still looks like a ranked list. Swap the embedder, and you get a fresh collection instead of silently corrupted search.
+
+Ingestion also skips things that should never be indexed: `.env` files, build output, anything over 200 KB. A search index over your repo that happily embeds your secrets is a leak with extra steps.
+
+## The checklist
+
+If you are building document RAG, these are the points I would check first:
+
+1. Chunk by structure first, size second.
+2. Do not split inside code fences.
+3. Embed the heading path with the text.
+4. Store line ranges, so you can cite.
+5. Hash files to re-index incrementally.
+6. One collection per embedding model.
+7. Decide what must never be indexed.
+
+The code is in [devPilot](https://github.com/aryanbhattaraidev-wq/devPilot), under `devpilot/rag/`.

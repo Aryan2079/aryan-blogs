@@ -1,0 +1,89 @@
+---
+title: 'MCP tool annotations are hints. The host has to write the policy.'
+date: '2026-11-24'
+lastmod: '2026-11-24'
+tags: ['mcp', 'python', 'ai-agents', 'security']
+draft: true
+summary: 'An MCP server can tell you a tool is read-only. It can also be wrong, or lying. Here is the approval gate I built in DevPilot, and why it fails closed.'
+images: ['/static/images/banner/mcp-annotations-are-hints-not-policy.jpg']
+authors: ['default']
+layout: PostBannerLayout
+canonicalUrl: https://aryanbhattarai.com.np/blog/mcp-annotations-are-hints-not-policy
+---
+
+When you connect an AI assistant to GitHub, a database and your filesystem through the Model Context Protocol, a question shows up fast: which of those tool calls should run without asking me?
+
+MCP gives you something that looks like the answer. Each tool can carry annotations: `readOnlyHint`, `destructiveHint`, `openWorldHint`. It is tempting to read them and skip the prompt for anything marked read-only. I did not, and the reason is in the name. They are hints.
+
+## Who is allowed to decide
+
+The server describes its own tool. A server written carelessly can forget to annotate it. A server that is compromised, or simply malicious, can mark a delete as read-only. So the server cannot be the one deciding what needs approval.
+
+In DevPilot the split is: servers describe, the host decides. The host is the application that owns the chat and talks to the model, and it is the only part I fully control.
+
+## Defaults that fail safe
+
+The MCP spec helps here. Its defaults are pessimistic: a tool that does not say otherwise is assumed to be destructive and to touch the outside world. That means a missing annotation is the cautious case. My policy function leans on that:
+
+```python
+def assess(tool: types.Tool) -> Risk:
+    a = tool.annotations
+    if a is None:
+        return Risk(True, True, "the server gave no safety annotations, so it is treated as potentially destructive")
+    if a.read_only_hint:
+        return Risk(False, False, "read-only")
+    if a.destructive_hint is None or a.destructive_hint:
+        return Risk(True, True, "this action can destroy or overwrite data")
+    if a.open_world_hint is None or a.open_world_hint:
+        return Risk(True, False, "this action changes something outside DevPilot that others can see")
+    return Risk(False, False, "local, non-destructive change")
+```
+
+The resulting table:
+
+| What the tool is | What happens |
+| --- | --- |
+| Read-only | Runs |
+| Destructive, or no annotations | Asks every time |
+| Non-destructive write that others can see (creating a GitHub issue) | Asks. You may allow it for the session |
+| Non-destructive write that stays local (adding a task to my own SQLite) | Runs |
+
+The third row is the interesting one. Creating a GitHub issue is not destructive, but a mistake is public and it notifies people. "Not destructive" and "safe" are different things.
+
+## Where the gate sits
+
+The gate lives in the agent loop, between "the model asked for X" and "X runs". The model never connects to a server directly. It asks the host, and the host checks the gate.
+
+Three small decisions in that gate matter more than they look:
+
+- **It fails closed.** If the code that asks for approval raises an exception, the answer is no.
+- **Destructive approvals are never remembered.** "Always allow this tool" is only offered for non-destructive ones. Approving a delete once does not approve the next delete.
+- **Parallel calls are asked one at a time.** The model can request several tools at once. A lock stops three prompts from stacking on top of each other and the user approving the wrong one.
+
+```python
+async with self._lock:
+    if qualified_name in self._always and not risk.destructive:
+        return GateResult(True)
+    try:
+        decision = await self.approver(request)
+    except Exception as exc:  # fail closed
+        return GateResult(False, True, f"approval failed ({type(exc).__name__})")
+```
+
+## What the model hears when you say no
+
+A denial is sent back to the model as an ordinary tool result: the action was not executed. That wording matters. If you just raise an error, models tend to retry. If you tell them plainly that a human declined, they explain what they could not do and suggest something else.
+
+## The web UI problem
+
+In the terminal, asking for approval is an `input()` call. In a web UI the model's turn has to pause while a person decides, possibly for minutes, and a normal request-response cycle cannot wait that long.
+
+I ended up with an append-only event log per session (user message, tool call, tool result, approval request, answer). The browser polls the log. When it sees an approval request, it renders Approve and Deny buttons, and those post to a separate endpoint that resolves the future the agent loop is awaiting. The turn does not hold a connection open. It sleeps on a future.
+
+## What this does not solve
+
+The gate controls whether a tool runs. It does not look inside the arguments. If you approve "create issue" and the model puts something sensitive in the body, the gate approved a call, not its contents. That is why the prompt should show the arguments and not only the tool name.
+
+It also trusts the tool list. A malicious server can lie about what a tool does in its description. If you are connecting to servers you did not write, that is a different threat model, and an approval prompt is not enough.
+
+The takeaway I would pass on: treat everything a tool says about itself as input to your policy, never as the policy. The code is in [devPilot](https://github.com/aryanbhattaraidev-wq/devPilot), in `devpilot/approval.py`.
