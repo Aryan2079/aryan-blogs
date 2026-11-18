@@ -14,13 +14,13 @@ const projectsData: Project[] = [
   },
   {
     title: 'devPilot',
-    description: `An AI developer assistant on the Model Context Protocol. MCP servers for GitHub, tasks, files and docs search with cited answers, plus a human-approval gate that fails closed.`,
+    description: `An AI developer assistant on the Model Context Protocol. MCP servers for GitHub, tasks, files and docs search (RAG with line-range citations), plus a human-approval gate that fails closed.`,
     imgSrc: '',
     href: 'https://github.com/aryan-bhattarai/devPilot',
   },
   {
     title: 'ai-guardrails',
-    description: `Provider-agnostic input and output validation for LLM apps. YAML policies, a CLI and a FastAPI service. Fails closed, never logs content, and documents what it cannot catch.`,
+    description: `Provider-agnostic input and output validation for LLM apps. YAML policies, PII redaction, a CLI and a FastAPI service. Fails closed, never logs content, and documents what it cannot catch.`,
     imgSrc: '',
     href: 'https://github.com/aryan-bhattarai/guardrails_ai_scafold',
   },

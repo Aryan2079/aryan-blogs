@@ -1,7 +1,7 @@
 ---
 name: Aryan Bhattarai
 avatar: /static/images/avatar.png
-occupation: AI Engineer Trainee
+occupation: AI Engineer
 company: InfoDevelopers
 email: aryanbhattarai.dev@gmail.com
 linkedin: https://www.linkedin.com/in/aryan-bhattarai-dev/
@@ -12,9 +12,13 @@ github: https://github.com/aryan-bhattarai
 
 I build LLM systems for places where a wrong answer has a cost. Most of my work is the part around the model: what it is allowed to call, what it is allowed to say, and how I know it works.
 
-Since July 2026 I have been an AI Engineer Trainee at InfoDevelopers, working on INFINITY AI, a multi-tenant AI middleware for co-operative banking. I built the LangGraph agent pipeline, designed the SQL Server tools so the database does the maths and the model only explains the results, built the authentication and tenant isolation, integrated an LLM Guard service on GPU replicas, moved the system to a GPU server, and wrote about 400 automated tests.
+I have spent 4+ years building production LLM systems for fintech and banking: RAG assistants with hybrid search, reranking and LLM-as-judge evaluation, LoRA fine-tuning served on vLLM, and LangGraph agents with SQL tool-calling, authentication, tenant isolation, LLM security testing and GPU deployment.
 
-Before that I was a data engineering intern at GrowByData, working on Airflow ETL pipelines with pandas and SQL. I finished my B.E. in Computer and Electronics Engineering at Kantipur Engineering College (Tribhuvan University, 2026). I co-authored a paper on glaucoma detection from retinal images, using an Attention U-Net and DeiT-Tiny, with 89.77% accuracy and an AUC of 0.956 on 12,449 images. It was published in the [International Journal on Engineering Technology](https://doi.org/10.3126/injet.v3i2.95539).
+Since July 2026 I have been an AI Engineer at InfoDevelopers, working on INFINITY AI, a multi-tenant AI middleware for co-operative core banking. I built the LangGraph agent pipeline, designed the SQL Server tools and stored procedures so the database does the maths and the model only explains the results, built a star-schema warehouse for daily metrics and ratios, implemented the authentication and tenant isolation, integrated LLM Guard on load-balanced GPU replicas, moved the system to a GPU server, and wrote about 400 automated tests plus a black-box API test that found a login lockout bypass.
+
+Before that I spent nearly four years at Microcode Technologies, a fintech software company building loan management and core banking systems. I started as a frontend intern on the Loan Management System in React and TypeScript, then worked as a Junior AI Engineer: I built a RAG assistant for lending policy and law questions (tuned to 92% accuracy on a 500-question LLM-as-judge evaluation), fine-tuned Qwen-7B-Chat with LoRA and served it on vLLM, built Hautu, an in-app "how do I..." assistant, added PII redaction and prompt-injection testing, and built a facial-recognition attendance system.
+
+In early 2026 I was a data engineering intern at GrowByData, building Airflow ETL pipelines with pandas and SQL and scraping search results and LLM answers for SEO and AI-visibility analytics. I finished my B.E. in Computer and Electronics Engineering at Kantipur Engineering College (Tribhuvan University, 2026). I co-authored a paper on glaucoma detection from retinal images, using an Attention U-Net and DeiT-Tiny, with 89.77% accuracy and an AUC of 0.956 on 12,449 images. It was published in the [International Journal on Engineering Technology](https://doi.org/10.3126/injet.v3i2.95539).
 
 **What I build on my own time**
 
@@ -22,6 +26,7 @@ Before that I was a data engineering intern at GrowByData, working on Airflow ET
 - **devPilot**: an assistant on the Model Context Protocol with a human-approval gate that fails closed.
 - **ai-guardrails**: input and output validation for any LLM provider, with its limits documented.
 - **autonomous_research_agent**: a LangGraph pipeline with vector memory for follow-up questions.
+- **LLM fine-tuning**: continued pretraining, instruction tuning and domain adaptation of open models (TinyLlama, Qwen2.5) with LoRA.
 
 **Now learning:** LLM inference and platform engineering: how models are served, batched and scaled, not only how they are prompted.
 
